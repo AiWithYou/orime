@@ -1,0 +1,97 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": "A red metal greenhouse on a quiet lake, plants visible through glass, realistic morning light"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": ""
+    }
+  },
+  "4": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 768,
+      "height": 768,
+      "batch_size": 1
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "seed": 42,
+      "steps": 20,
+      "cfg": 6,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "positive": ["103", 0],
+      "negative": ["103", 1],
+      "latent_image": ["4", 0],
+      "denoise": 1
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["6", 0],
+      "filename_prefix": "orime_canny"
+    }
+  },
+  "100": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    }
+  },
+  "101": {
+    "class_type": "Canny",
+    "inputs": {
+      "image": ["100", 0],
+      "low_threshold": 0.3,
+      "high_threshold": 0.6
+    }
+  },
+  "102": {
+    "class_type": "ControlNetLoader",
+    "inputs": {
+      "control_net_name": "control-lora-canny-rank128.safetensors"
+    }
+  },
+  "103": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "control_net": ["102", 0],
+      "image": ["101", 0],
+      "strength": 0.65,
+      "start_percent": 0,
+      "end_percent": 0.8
+    }
+  },
+  "104": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": ["101", 0]
+    }
+  }
+}

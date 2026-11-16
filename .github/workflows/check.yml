@@ -1,0 +1,21 @@
+name: Checks
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: npm ci
+      - run: npm test
+      - run: powershell.exe -NoProfile -File tests/process-lifecycle.ps1
+      - run: npm run build
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
