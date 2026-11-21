@@ -100,3 +100,23 @@ fn bridge_is_added_once_preserving_extensions() {
     assert_eq!(out.as_array().unwrap().len(), 2);
     assert_eq!(extension_list(out.clone()), out);
 }
+
+#[test]
+fn rejects_malformed_local_hosts() {
+    for host in [
+        "localhost:8199/path",
+        "localhost:8199?q",
+        "localhost:8199#fragment",
+        ":password@localhost:8199",
+    ] {
+        assert!(!local_request(host, None), "{host}");
+    }
+}
+
+#[test]
+fn draft_ids_are_unique_across_rapid_calls() {
+    let a = orime::next_draft_id();
+    let b = orime::next_draft_id();
+    assert_ne!(a, b);
+    assert!(a.bytes().all(|c| c.is_ascii_digit() || c == b'-'));
+}

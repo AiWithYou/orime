@@ -11,6 +11,7 @@ import {
   Minus,
   ImagePlus,
   Undo2,
+  Trash2,
   Eraser,
   Scan,
   Maximize,
@@ -19,6 +20,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { maskAlpha } from "./graph.mjs";
+import { clampZoom } from "./editor-controls.mjs";
 
 export default forwardRef(function Canvas(
   {
@@ -44,11 +46,14 @@ export default forwardRef(function Canvas(
     undo = useRef([]),
     drawing = useRef(false),
     last = useRef(),
-    loaded = useRef(false);
+    loaded = useRef(false),
+    dragDepth = useRef(0);
   const [size, setSize] = useState([1024, 1024]),
     [zoom, setZoom] = useState(1),
     [fit, setFit] = useState(0.5),
-    [painted, setPainted] = useState(false);
+    [painted, setPainted] = useState(false),
+    [dragging, setDragging] = useState(false),
+    [cursor, setCursor] = useState(null);
   useEffect(() => {
     loaded.current = false;
     if (!source) return;
@@ -120,10 +125,13 @@ export default forwardRef(function Canvas(
   useEffect(() => {
     const observer = new ResizeObserver(([e]) =>
       setFit(
-        Math.min(
-          (e.contentRect.width - 32) / size[0],
-          (e.contentRect.height - 64) / size[1],
-          1,
+        Math.max(
+          0.05,
+          Math.min(
+            (e.contentRect.width - 32) / size[0],
+            (e.contentRect.height - 64) / size[1],
+            1,
+          ),
         ),
       ),
     );
@@ -160,7 +168,7 @@ export default forwardRef(function Canvas(
     c.lineTo(...p);
     c.stroke();
     last.current = p;
-    setPainted(true);
+    if (tool === "brush") setPainted(true);
   }
   function start(e) {
     if (!source || !["brush", "erase"].includes(tool)) return;
@@ -183,17 +191,38 @@ export default forwardRef(function Canvas(
     c.beginPath();
     c.arc(...last.current, brush / 2, 0, Math.PI * 2);
     c.fill();
-    setPainted(true);
+    if (tool === "brush") setPainted(true);
   }
   function undoMask() {
     const previous = undo.current.pop();
     if (previous) mask.current.getContext("2d").putImageData(previous, 0, 0);
+    refreshPainted();
+  }
+  function finishStroke() {
+    if (!drawing.current) return;
+    drawing.current = false;
+    if (tool === "erase") refreshPainted();
+  }
+  function refreshPainted() {
     setPainted(
-      !!mask.current
+      mask.current
         .getContext("2d")
         .getImageData(0, 0, ...size)
         .data.some((v, i) => i % 4 === 3 && v),
     );
+  }
+  function clearMaskWithUndo() {
+    if (!source || !painted) return;
+    undo.current.push(
+      mask.current.getContext("2d").getImageData(0, 0, ...size),
+    );
+    mask.current.getContext("2d").clearRect(0, 0, ...size);
+    setPainted(false);
+  }
+  function updateCursor(e) {
+    if (!mask.current) return;
+    const r = mask.current.getBoundingClientRect();
+    setCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
   }
   useImperativeHandle(ref, () => ({
     undo: undoMask,
@@ -287,16 +316,46 @@ export default forwardRef(function Canvas(
           <Undo2 />
           <span>元に戻す</span>
         </button>
+        <button
+          title="マスクを全消去"
+          aria-label="マスクを全消去"
+          disabled={!source || !painted}
+          onClick={clearMaskWithUndo}
+        >
+          <Trash2 />
+          <span>全消去</span>
+        </button>
       </nav>
       <section
-        className="canvas-space"
+        className={"canvas-space" + (dragging ? " dragging" : "")}
         ref={box}
+        onWheel={(e) => {
+          if (!source || !(e.ctrlKey || e.metaKey)) return;
+          e.preventDefault();
+          setZoom((z) => clampZoom(z + (e.deltaY < 0 ? 0.15 : -0.15)));
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
         onDragOver={(e) => e.preventDefault()}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
           load(e.dataTransfer.files[0]);
         }}
       >
+        {dragging && (
+          <div className="drop-overlay" aria-hidden="true">
+            <span>画像をドロップして読み込む</span>
+          </div>
+        )}
         <input
           type="file"
           accept="image/*"
@@ -327,22 +386,37 @@ export default forwardRef(function Canvas(
             className="mask"
             style={{ opacity: compare ? 0 : 0.55 }}
             ref={mask}
-            onPointerDown={start}
-            onPointerMove={stroke}
-            onPointerUp={() => {
-              drawing.current = false;
-              if (tool === "erase")
-                setPainted(
-                  mask.current
-                    .getContext("2d")
-                    .getImageData(0, 0, ...size)
-                    .data.some((v, i) => i % 4 === 3 && v),
-                );
+            onPointerDown={(e) => {
+              updateCursor(e);
+              start(e);
             }}
-            onPointerCancel={() => (drawing.current = false)}
+            onPointerMove={(e) => {
+              updateCursor(e);
+              stroke(e);
+            }}
+            onPointerUp={finishStroke}
+            onPointerCancel={finishStroke}
+            onPointerLeave={() => setCursor(null)}
           />
+          {cursor && source && ["brush", "erase"].includes(tool) && (
+            <div
+              className={"brush-cursor " + tool}
+              aria-hidden="true"
+              style={{
+                left: cursor.x,
+                top: cursor.y,
+                width: Math.max(4, brush * fit * zoom),
+                height: Math.max(4, brush * fit * zoom),
+              }}
+            />
+          )}
         </div>
         <div className="zoom">
+          {source && (
+            <span className="resolution-pill" title="画像解像度">
+              {size[0]}×{size[1]}
+            </span>
+          )}
           {source && (
             <div className="brush-controls">
               <span>ブラシ</span>
@@ -369,14 +443,14 @@ export default forwardRef(function Canvas(
 
           <button
             title="縮小"
-            onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}
+            onClick={() => setZoom((z) => clampZoom(z - 0.25))}
           >
             <Minus size={16} />
           </button>
           <span>{Math.round(fit * zoom * 100)}%</span>
           <button
             title="拡大"
-            onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
+            onClick={() => setZoom((z) => clampZoom(z + 0.25))}
           >
             <Plus size={16} />
           </button>

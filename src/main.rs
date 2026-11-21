@@ -13,12 +13,27 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use orime::{extension_list, local_request, valid_job_id, valid_upstream};
 use std::{
+    path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
+
+static TMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+async fn atomic_write(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let seq = TMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{seq}", std::process::id()));
+    tokio::fs::write(&tmp, bytes).await?;
+    if let Err(error) = tokio::fs::rename(&tmp, path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(error);
+    }
+    Ok(())
+}
 
 struct App {
     upstream: String,
@@ -244,14 +259,14 @@ async fn save_draft(axum::Json(mut value): axum::Json<serde_json::Value>) -> Res
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let id = stamp.as_nanos().to_string();
+    let id = orime::next_draft_id();
     value["id"] = serde_json::json!(id);
     value["created"] = serde_json::json!(stamp.as_millis() as u64);
     let result = async {
         tokio::fs::create_dir_all("data/drafts").await?;
-        tokio::fs::write(
+        atomic_write(
             format!("data/drafts/{id}.json"),
-            serde_json::to_vec(&value).unwrap(),
+            &serde_json::to_vec(&value).unwrap(),
         )
         .await
     }
@@ -282,7 +297,7 @@ async fn persist_history(value: &serde_json::Value) {
                     .collect();
                 record["images"] = serde_json::json!(images);
                 record["execution_status"] = history["status"].clone();
-                let _ = tokio::fs::write(&path, serde_json::to_vec(&record).unwrap()).await;
+                let _ = atomic_write(&path, &serde_json::to_vec(&record).unwrap()).await;
             }
         }
     }
@@ -393,7 +408,7 @@ async fn proxy(State(s): State<Arc<App>>, request: Request<Body>) -> Response {
             Err(_) => StatusCode::BAD_GATEWAY.into_response(),
         };
     }
-    if path.starts_with("/history/") || path.starts_with("/api/history/") {
+    if status.is_success() && (path.starts_with("/history/") || path.starts_with("/api/history/")) {
         return match response.json::<serde_json::Value>().await {
             Ok(value) => {
                 persist_history(&value).await;
@@ -416,9 +431,9 @@ async fn proxy(State(s): State<Arc<App>>, request: Request<Body>) -> Response {
                     let record = serde_json::json!({"id":id,"created":created,"status":"未確認","family":metadata["family"].as_str().unwrap_or("ComfyUI"),"prompt":metadata["prompt"].as_str().unwrap_or(""),"workflow":submitted["extra_data"]["extra_pnginfo"]["workflow"],"api":submitted["prompt"],"images":[]});
                     if let Err(e) = async {
                         tokio::fs::create_dir_all("data/jobs").await?;
-                        tokio::fs::write(
+                        atomic_write(
                             format!("data/jobs/{id}.json"),
-                            serde_json::to_vec(&record).unwrap(),
+                            &serde_json::to_vec(&record).unwrap(),
                         )
                         .await
                     }

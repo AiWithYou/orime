@@ -36,3 +36,9 @@ The model picker can preselect known compatible files already present in ComfyUI
 
 Anima 3.8B is a distinct extension architecture with an additional encoder and connector. It must not be preselected for the standard Anima recipe. Use its dedicated extension workflow in node mode.
 Drafts marked needsCanvasCompile restore the image and mask without rebuilding an existing workflow. The user explicitly selects a new recipe to incorporate new image/mask topology; this preserves nodes added in ComfyUI. Drafts without a workflow compile normally on first submission.
+
+Family changes select only installed model patches and LoRAs. The workflow picker supports reopening the same JSON file. Canvas auto-fit has a 5% minimum. Ending or canceling an eraser stroke updates the mask state from the remaining pixels.
+
+Local requests reject Host values containing a password, a non-root path, a query, or a fragment. Draft IDs include a monotonic sequence suffix and local job/draft writes use atomic temp-file replacement.
+
+Canvas displays a live scaled brush cursor ring, supports Ctrl+wheel zoom (clamped to 25%–400%), highlights drag-and-drop targets, shows the active image resolution, and offers an undoable clear-mask action. Settings and Image Tools modals close on Escape or backdrop click, and history displays status badges with an explicit empty state.

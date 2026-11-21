@@ -33,7 +33,12 @@ export default function ImageTools({
     }
   }
   return (
-    <div className="dialog-backdrop">
+    <div
+      className="dialog-backdrop"
+      onClick={(e) => {
+        if (!pending && e.target === e.currentTarget) onClose();
+      }}
+    >
       <section
         role="dialog"
         aria-modal="true"

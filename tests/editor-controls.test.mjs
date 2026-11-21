@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  clampZoom,
   imageEditSettings,
   shortcutAction,
 } from "../frontend/editor-controls.mjs";
@@ -55,4 +56,11 @@ test("shortcuts respect typing, composition, modifiers and repeated keys", () =>
     "generate",
   );
   assert.equal(shortcutAction({ key: "s", ctrlKey: true }), "save");
+});
+
+test("clampZoom bounds canvas zoom between 25% and 400%", () => {
+  assert.equal(clampZoom(0.1), 0.25);
+  assert.equal(clampZoom(1.234), 1.23);
+  assert.equal(clampZoom(5), 4);
+  assert.equal(clampZoom(Number.NaN), 1);
 });

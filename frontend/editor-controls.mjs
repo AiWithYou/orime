@@ -16,6 +16,10 @@ export function imageEditSettings(settings, defaults = {}) {
   }
   return next;
 }
+export function clampZoom(value) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(0.25, Math.min(4, Math.round(value * 100) / 100));
+}
 export function shortcutAction(event) {
   if (event.repeat || event.isComposing || event.altKey) return null;
   const key = event.key?.toLowerCase();

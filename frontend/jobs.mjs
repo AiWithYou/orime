@@ -92,7 +92,7 @@ export async function cancelJob(api, post, id) {
   const job = { id, cancelRequested: reply?.cancelled === true };
   try {
     const [history, queue] = await Promise.all([
-      api("/history/" + id),
+      api("/history/" + encodeURIComponent(id)),
       api("/queue"),
     ]);
     return reconcileJob(job, history, queue);

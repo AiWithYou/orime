@@ -1,5 +1,17 @@
 use serde_json::Value;
+use std::sync::atomic::{AtomicU64, Ordering};
 use url::Url;
+
+static DRAFT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+pub fn next_draft_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let seq = DRAFT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos}-{seq}")
+}
 pub fn valid_shutdown_origin(host: &str, origin: Option<&str>) -> bool {
     origin.is_some() && local_request(host, origin)
 }
@@ -59,6 +71,10 @@ pub fn local_request(host: &str, origin: Option<&str>) -> bool {
     };
     is_local(u.host_str().unwrap_or(""))
         && u.username().is_empty()
+        && u.password().is_none()
+        && u.path() == "/"
+        && u.query().is_none()
+        && u.fragment().is_none()
         && origin.is_none_or(|o| o == format!("http://{host}"))
 }
 pub fn extension_list(mut value: Value) -> Value {

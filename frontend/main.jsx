@@ -61,15 +61,23 @@ const initial = {
   negative: "",
   width: 1024,
   height: 1024,
-  steps: 24,
+  steps: 25,
   cfg: 7,
   seed: 42,
   checkpoint: "",
   unet: "",
   clip: "",
   vae: "",
-  denoise: 0.7,
+  denoise: 0.75,
 };
+const statusTone = (status) =>
+  status === "完了"
+    ? "done"
+    : ["生成中", "待機中", "停止要求中"].includes(status)
+      ? "running"
+      : status === "失敗"
+        ? "error"
+        : "muted";
 function Field({
   name,
   label,
@@ -228,7 +236,11 @@ function App({ onShutdown } = {}) {
         const queue = await api("/queue");
         const updates = await Promise.all(
           pending.map(async (job) =>
-            reconcileJob(job, await api("/history/" + job.id), queue),
+            reconcileJob(
+              job,
+              await api("/history/" + encodeURIComponent(job.id)),
+              queue,
+            ),
           ),
         );
         if (stopped) return;
@@ -304,6 +316,10 @@ function App({ onShutdown } = {}) {
   }
   async function openNodeTemplate(name) {
     try {
+      if (!ready)
+        throw Error(
+          "ComfyUIのノード画面を読み込み中です。しばらくお待ちください。",
+        );
       if (!source) throw Error("先にキャンバスへ画像を読み込んでください。");
       const image = await upload(
         await canvas.current.imageBlob(false),
@@ -508,6 +524,8 @@ function App({ onShutdown } = {}) {
           unet: "",
           clip: "",
           vae: "",
+          modelPatch: "",
+          lora: "",
           denoise: 0.7,
           ...suggestModelFiles(value, info),
         };
@@ -803,6 +821,16 @@ function App({ onShutdown } = {}) {
   ];
   useEffect(() => {
     const handler = (event) => {
+      if (event.key === "Escape") {
+        if (dialog) {
+          setDialog(false);
+          return;
+        }
+        if (toolsOpen) {
+          setToolsOpen(false);
+          return;
+        }
+      }
       if (mode !== "canvas" || dialog || toolsOpen || preview) return;
       const action = shortcutAction(event);
       if (!action) return;
@@ -848,7 +876,7 @@ function App({ onShutdown } = {}) {
             <SlidersHorizontal size={18} />
             画像ツール
           </button>
-          <button onClick={save}>
+          <button disabled={busy} onClick={save}>
             <Save size={18} />
             保存
           </button>
@@ -1209,10 +1237,16 @@ function App({ onShutdown } = {}) {
               <X size={16} />
             </button>
           </h2>
+          {jobs.length === 0 && (
+            <p className="history-empty">まだ生成履歴はありません</p>
+          )}
           {jobs.map((job) => (
             <article key={job.id}>
-              <span>
-                {job.family} · {job.status}
+              <span className="job-meta">
+                <span>{job.family}</span>
+                <em className={"status-badge " + statusTone(job.status)}>
+                  {job.status}
+                </em>
               </span>
               {["生成中", "待機中"].includes(job.status) && (
                 <button onClick={() => cancel(job.id)}>
@@ -1312,7 +1346,12 @@ function App({ onShutdown } = {}) {
         />
       )}
       {dialog && (
-        <div className="dialog-backdrop">
+        <div
+          className="dialog-backdrop"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDialog(false);
+          }}
+        >
           <section className="dialog" role="dialog" aria-label="設定">
             <div className="dialog-heading">
               <h2>設定</h2>
@@ -1456,13 +1495,13 @@ function App({ onShutdown } = {}) {
               </p>
               <div className="dialog-actions">
                 <button
-                  disabled={!source}
+                  disabled={!source || !ready || busy}
                   onClick={() => openNodeTemplate("tools")}
                 >
                   切り抜き・2倍超解像
                 </button>
                 <button
-                  disabled={!source}
+                  disabled={!source || !ready || busy}
                   onClick={() => openNodeTemplate("canny")}
                 >
                   SDXL・輪郭指定
@@ -1499,7 +1538,10 @@ function App({ onShutdown } = {}) {
               hidden
               type="file"
               accept=".json"
-              onChange={(e) => importWorkflow(e.target.files[0])}
+              onChange={(e) => {
+                importWorkflow(e.target.files[0]);
+                e.target.value = "";
+              }}
             />
             <p>
               ComfyUI: {connected ? "接続済み" : "未接続"}。接続先は起動時の
